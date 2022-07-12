@@ -8,5 +8,6 @@ setuptools.setup(
     description="Multilingual boilerplate detection model",
     url="https://github.com/albertus-andito/multilingual-boilerplate-detection",
     packages=["m_semtext", "dataset_processor"],
-    python_requires=">=3.8",
+    package_dir={"": "src"},
+    python_requires=">=3.7",
 )
