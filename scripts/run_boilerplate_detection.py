@@ -158,6 +158,10 @@ class TrainingArguments:
         default=None,
         metadata={"help": "Weight and Biases project name that will be used only if use_wandb_logger is True."}
     )
+    wandb_run_name: Optional[str] = field(
+        default=None,
+        metadata={"help": "Weight and Biases run name that will be used only if use_wandb_logger is True."}
+    )
     do_train: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to run training or not."}
@@ -250,7 +254,7 @@ if __name__ == "__main__":
     print("=========================================================")
 
     if training_args.use_wandb_logger:
-        logger = WandbLogger(project=training_args.wandb_project_name)
+        logger = WandbLogger(project=training_args.wandb_project_name, name=training_args.wandb_run_name)
     else:
         logger = True
     seed_everything(42, workers=True)

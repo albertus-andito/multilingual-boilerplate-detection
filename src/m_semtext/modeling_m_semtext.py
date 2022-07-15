@@ -108,7 +108,7 @@ class MSemText(pl.LightningModule):
                 flatten = torch.flatten(row, end_dim=-2)
                 # get the embedding representation of the input
                 x_embed_flatten, seq_length = self._get_embedding(flatten, seq_length)
-                unflatten = torch.reshape(x_embed_flatten, (feature_map_size, num_of_blocks, seq_length, self.embed_dim))
+                unflatten = torch.reshape(x_embed_flatten, (feature_map_size, num_of_blocks, self.embed_dim))
                 x_embed.append(unflatten)
         else:  # need to get the BERT embeddings per feature in each row because of the batch size would have been large
             for i, row in enumerate(input_ids):
