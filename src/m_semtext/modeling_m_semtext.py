@@ -1,9 +1,10 @@
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchcrf import CRF
+from torchmetrics import F1Score, MetricCollection, Precision, Recall
 from transformers import AutoModel
-from typing import List
 
+import itertools
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
@@ -16,31 +17,37 @@ class MSemText(pl.LightningModule):
     embedding_feature_options = ["pooled_output", "cls", "mean_pooling", "max_pooling", "cnn"]
     features_combination_options = ["concat", "sum", "mean", "max"]
 
-    def __init__(self, embed_model_name="xlm-roberta-base",
-                 embedding_feature="pooled_output", features_combination="concat", num_feature_map: int = 3,
-                 filter_sizes: List[int] = [3, 5, 7], num_filters: List[int] = [128, 128, 256],
-                 lstm_hidden_size: int = 512, total_length_per_seq: int = 85, num_classes: int = 2,
-                 continue_pre_train_embedding: bool = False, large_embedding_batch: bool = False):
+    def __init__(self, embedding_model_name: str = "xlm-roberta-base",
+                 embedding_feature: str = "pooled_output", features_combination: str = "concat",
+                 num_feature_map: int = 3,
+                 filter_sizes: list = None, num_filters: list = None, lstm_hidden_size: int = 512,
+                 total_length_per_seq: int = 85, num_classes: int = 2,
+                 continue_pre_train_embedding: bool = False, large_embedding_batch: bool = False,
+                 learning_rate: float = 1e-3):
         """
 
-        :param embed_model_name: name of the language model to be used. It must be a model that exists on HuggingFace Hub.
-        :param embedding_feature: feature of the embeddings to be used.
+        :param embedding_model_name: Name of the language model to be used in the embedding model.
+                                    It must be a model that exists on HuggingFace Hub.
+        :param embedding_feature: Feature of the embeddings to be used.
                                 The options are "pooled_output", "cls", "mean_pooling", "max_pooling", or "cnn".
-        :param features_combination: the operation to do to combine the features (tags, classes, and texts).
+        :param features_combination: The operation to do to combine the features (tags, classes, and texts).
                                     The options are "concat", "sum", "mean", and "max".
-        :param num_feature_map: the number of features maps. This is used to determine the LSTM input size
-        :param filter_sizes: the sizes of kernels/filters used in the 1D CNN
-        :param num_filters: the numbers of filters/out channels used in the 1D CNN for each of the filter
-        :param lstm_hidden_size: size of the LSTM hidden units
-        :param total_length_per_seq: total number of text blocks per sequence
-        :param num_classes: the number of classes that is used for prediction
-        :param continue_pre_train_embedding: whether to continue the language model pre-training with the current training data or not
-        :param large_embedding_batch: when retrieving the embeddings from the language model,
-                                    whether to get the embedding in large batch or not. (This could affect memory utilisation)
+        :param num_feature_map: The number of features maps. This is used to determine the LSTM input size.
+        :param filter_sizes: The sizes of kernels/filters used in the 1D CNN.
+        :param num_filters: The numbers of filters/out channels used in the 1D CNN for each of the filter.
+        :param lstm_hidden_size: Size of the LSTM hidden units
+        :param total_length_per_seq: Total number of text blocks per sequence.
+        :param num_classes: The number of classes that is used for prediction.
+        :param continue_pre_train_embedding: Whether to continue the language model pre-training with the current training data or not.
+        :param large_embedding_batch: When retrieving the embeddings from the language model,
+                                    whether to get the embedding in large batch or not. (This could affect memory utilisation).
         """
         super(MSemText, self).__init__()
-
-        self.embedding = AutoModel.from_pretrained(embed_model_name)
+        if num_filters is None:
+            num_filters = [128, 128, 256]
+        if filter_sizes is None:
+            filter_sizes = [3, 5, 7]
+        self.embedding = AutoModel.from_pretrained(embedding_model_name)
         if not continue_pre_train_embedding:
             for param in self.embedding.parameters():
                 param.requires_grad = False
@@ -72,6 +79,23 @@ class MSemText(pl.LightningModule):
         self.total_length_per_seq = total_length_per_seq
 
         self.large_embedding_batch = large_embedding_batch
+
+        self.learning_rate = learning_rate
+
+        metrics = MetricCollection({
+            "precision_micro": Precision(num_classes=2, average="micro"),
+            "precision_macro": Precision(num_classes=2, average="macro"),
+            "precision_weighted": Precision(num_classes=2, average="weighted"),
+            "recall_micro": Recall(num_classes=2, average="micro"),
+            "recall_macro": Recall(num_classes=2, average="macro"),
+            "recall_weighted": Recall(num_classes=2, average="weighted"),
+            "f1_micro": F1Score(num_classes=2, average="micro"),
+            "f1_macro": F1Score(num_classes=2, average="macro"),
+            "f1_weighted": F1Score(num_classes=2, average="weighted")
+        })
+        self.train_metrics = metrics.clone(prefix="train_")
+        self.validation_metrics = metrics.clone(prefix="val_")
+        self.test_metrics = metrics.clone(prefix="test")
 
     def forward(self, input_ids: torch.Tensor, masks: torch.Tensor):
         input_size = input_ids.size()
@@ -108,7 +132,7 @@ class MSemText(pl.LightningModule):
                 x_feature_map_reshaped = x_feature_map.reshape([batch_size * num_of_blocks, self.embed_dim, seq_length])
 
                 # pass through different filter sizes
-                x_conv_list = [conv1d(x_feature_map_reshaped) for conv1d in model.conv1d_list]
+                x_conv_list = [conv1d(x_feature_map_reshaped) for conv1d in self.conv1d_list]
 
                 # max pool
                 x_pool_list = [F.max_pool1d(x_conv, kernel_size=x_conv.shape[2]) for x_conv in x_conv_list]
@@ -160,24 +184,24 @@ class MSemText(pl.LightningModule):
         attention_mask = (~inputs.eq(self.padding_token_id)).long()
         # get the embedding representation of the input
         if self.embedding_feature == "pooled_output":
-            embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask).pooler_output
+            embeds = self.embedding(input_ids=inputs, attention_mask=attention_mask).pooler_output
             seq_length = 1
         elif self.embedding_feature == "cls":
-            embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask).last_hidden_state[:, 0, :]
+            embeds = self.embedding(input_ids=inputs, attention_mask=attention_mask).last_hidden_state[:, 0, :]
             seq_length = 1
         # TODO: verify that this mean pooling is correct
         elif self.embedding_feature == "mean_pooling":
             # embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask).last_hidden_state
             # embeds = embeds.sum(axis=1) / attention_mask.sum(axis=-1).unsqueeze(-1)
-            embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask)
+            embeds = self.embedding(input_ids=inputs, attention_mask=attention_mask)
             embeds = self._mean_pooling(embeds, attention_mask)
             seq_length = 1
         elif self.embedding_feature == "max_pooling":
-            embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask)
+            embeds = self.embedding(input_ids=inputs, attention_mask=attention_mask)
             embeds = self._max_pooling(embeds, attention_mask)
             seq_length = 1
         else:
-            embeds = model.embedding(input_ids=inputs, attention_mask=attention_mask).last_hidden_state
+            embeds = self.embedding(input_ids=inputs, attention_mask=attention_mask).last_hidden_state
         return embeds, seq_length
 
     def _mean_pooling(self, model_output, attention_mask):
@@ -196,15 +220,24 @@ class MSemText(pl.LightningModule):
         return torch.max(token_embeddings, 1)[0]
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
         return [optimizer], [lr_scheduler]
+
+    def _calculate_metrics(self, metrics: MetricCollection, y_hat, y, mask):
+        predictions = torch.tensor(list(itertools.chain.from_iterable(self.crf.decode(y_hat, mask)))).to(self.device)
+        y_without_mask = [y_list[:mask_list.count(1)] for y_list, mask_list in zip(y.tolist(), mask.tolist())]
+        targets = torch.tensor(list(itertools.chain.from_iterable(y_without_mask))).to(self.device)
+        output = metrics(predictions, targets)
+        self.log_dict(output)
 
     def training_step(self, batch, batch_idx):
         x, y, mask = batch
         y_hat = self(x, mask)
         loss = -self.crf(y_hat, y, mask, reduction="token_mean")
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        self._calculate_metrics(self.train_metrics, y_hat, y, mask)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -213,11 +246,15 @@ class MSemText(pl.LightningModule):
         val_loss = -self.crf(y_hat, y, mask, reduction="token_mean")
         self.log("val_loss", val_loss, on_step=True, on_epoch=True, prog_bar=True)
 
+        self._calculate_metrics(self.validation_metrics, y_hat, y, mask)
+
     def test_step(self, batch, batch_idx):
         x, y, mask = batch
         y_hat = self(x, mask)
         test_loss = -self.crf(y_hat, y, mask, reduction="token_mean")
         self.log("test_loss", test_loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        self._calculate_metrics(self.test_metrics, y_hat, y, mask)
 
     def predict_step(self, batch, batch_idx, **kwargs):
         if len(batch) == 2:
