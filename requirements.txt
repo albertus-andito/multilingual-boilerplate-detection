@@ -1,3 +1,4 @@
 pytorch-crf==0.7.2
 pytorch-lightning==1.6.4
-transformers @ git+https://github.com/huggingface/transformers@1dfa03f12b3748dc7e9c2b5ada40c3401ada23a5
+transformers @ git+https://github.com/huggingface/transformers
+scikit-learn
