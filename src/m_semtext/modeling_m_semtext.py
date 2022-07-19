@@ -12,8 +12,6 @@ import torch
 import torch.nn.functional as F
 
 from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
-from m_semtext.dataset_m_semtext import MSemTextDataModule
-from m_semtext.output_processor_m_semtext import MSemTextOutputProcessor
 
 
 class MSemText(pl.LightningModule):
