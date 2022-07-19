@@ -8,7 +8,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from sklearn.metrics import classification_report
 from transformers import HfArgumentParser
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
 from m_semtext.dataset_m_semtext import MSemTextDataModule
@@ -107,7 +107,7 @@ class ModelArguments:
         default=False,
         metadata={"help": "Whether to continue the language model pre-training with the current training data or not."}
     )
-    large_embedding_batch: Optional[bool] = field(
+    large_embedding_batch: Optional[Union[bool, float]] = field(
         default=False,
         metadata={"help": "When retrieving the embeddings from the language model, "
                           "whether to get the embedding in large batch or not. (This could affect memory utilisation)."}

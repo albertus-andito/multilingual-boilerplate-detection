@@ -1,3 +1,5 @@
+from typing import Union
+
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchcrf import CRF
@@ -10,6 +12,8 @@ import torch
 import torch.nn.functional as F
 
 from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
+from m_semtext.dataset_m_semtext import MSemTextDataModule
+from m_semtext.output_processor_m_semtext import MSemTextOutputProcessor
 
 
 class MSemText(pl.LightningModule):
@@ -22,7 +26,7 @@ class MSemText(pl.LightningModule):
                  num_feature_map: int = 3,
                  filter_sizes: list = None, num_filters: list = None, lstm_hidden_size: int = 512,
                  total_length_per_seq: int = 85, num_classes: int = 2,
-                 continue_pre_train_embedding: bool = False, large_embedding_batch: bool = False,
+                 continue_pre_train_embedding: bool = False, large_embedding_batch: Union[bool, float] = False,
                  learning_rate: float = 1e-3):
         """
 
@@ -59,6 +63,7 @@ class MSemText(pl.LightningModule):
         if features_combination not in self.features_combination_options:
             raise ValueError(f"Features combination is not valid! Choose between: {self.features_combination_options}")
         self.features_combination = features_combination
+        self.num_feature_map = num_feature_map
 
         if self.embedding_feature == "cnn":
             self.conv1d_list = nn.ModuleList([
@@ -67,7 +72,7 @@ class MSemText(pl.LightningModule):
             ])
 
         if self.features_combination == "concat":
-            lstm_input_size = num_feature_map * sum(num_filters) if self.embedding_feature == "cnn" else num_feature_map * self.embed_dim
+            lstm_input_size = self.num_feature_map * sum(num_filters) if self.embedding_feature == "cnn" else self.num_feature_map * self.embed_dim
         else:
             lstm_input_size = sum(num_filters) if self.embedding_feature == "cnn" else self.embed_dim
         self.lstm = nn.LSTM(input_size=lstm_input_size,
@@ -103,13 +108,22 @@ class MSemText(pl.LightningModule):
 
         x_embed = []
         # need to get the BERT embeddings per row because of the batch size would have been large
-        if self.large_embedding_batch:
+        if self.large_embedding_batch == 1 or self.large_embedding_batch is True:
             for i, row in enumerate(input_ids):
                 flatten = torch.flatten(row, end_dim=-2)
                 # get the embedding representation of the input
                 x_embed_flatten, seq_length = self._get_embedding(flatten, seq_length)
                 unflatten = torch.reshape(x_embed_flatten, (feature_map_size, num_of_blocks, self.embed_dim))
                 x_embed.append(unflatten)
+        elif self.large_embedding_batch == 0.5 and self.num_feature_map == 3:
+            for i, row in enumerate(input_ids):
+                first_second_features = torch.cat((row[0], row[1]))
+                x_embed_flatten, seq_length = self._get_embedding(first_second_features, seq_length)
+                unflatten = torch.reshape(x_embed_flatten, (2, num_of_blocks, self.embed_dim))
+                third_feature_embed, seq_length = self._get_embedding(row[2], seq_length)
+                third_feature_embed = torch.reshape(third_feature_embed, ((1, num_of_blocks, self.embed_dim)))
+                row_embed = torch.cat((unflatten, third_feature_embed), 0)
+                x_embed.append(row_embed)
         else:  # need to get the BERT embeddings per feature in each row because of the batch size would have been large
             for i, row in enumerate(input_ids):
                 row_embed = []
@@ -279,11 +293,28 @@ if __name__ == '__main__':
 
     features = processor.process_html(class_sequences=classes, tag_sequences=tags, text_sequences=text)
     features = torch.tensor([features, features])
-    labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]], dtype=torch.long)
-    masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]], dtype=torch.uint8)
+    labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.long)
+    masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.uint8)
 
     model.training_step((features, labels, masks), 0)
 
     pred = model.predict_step((features, labels, masks), 0)
     print(pred)
 
+    # data_module = MSemTextDataModule(
+    #     train_set_file_path="../../dataset/dataset-test-dev/train.csv",
+    #     val_set_file_path="../../dataset/dataset-test-dev/dev.csv",
+    #     test_set_file_path="../../dataset/dataset-test-dev/test.csv",
+    #     batch_size=2,
+    #     tokenizer_name="xlm-roberta-base", use_fast_tokenizer=True)
+    # data_module.prepare_data()
+    #
+    # model = MSemText(embedding_feature="pooled_output", large_embedding_batch=True)
+    # trainer = pl.Trainer(accelerator="auto",
+    #                      enable_progress_bar=True, max_epochs=1,
+    #                      log_every_n_steps=50)
+    # predictions = trainer.predict(model, dataloaders=data_module.test_dataloader())
+    #
+    # output_processor = MSemTextOutputProcessor()
+    # df = output_processor.process(predictions, data_module.test_dataloader().dataset)
+    # print(df)

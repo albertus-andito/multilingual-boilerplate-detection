@@ -35,7 +35,7 @@ class MSemTextDataset(Dataset):
         :param pad_blocks: Whether to pad each text block or not. Options are: 'max_length', 'longest', or 'do_not_pad'.
         :param truncate_blocks: Whether to truncate each text block to the maximum acceptable input length for the model.
         """
-        dataset_df = pd.read_csv(dataset_file_path)
+        self.dataset_df = pd.read_csv(dataset_file_path)
         self.label_col_name = label_col_name
         self.features_col_name = features_col_name
         self.mask_col_name = mask_sequence_col_name
@@ -51,7 +51,7 @@ class MSemTextDataset(Dataset):
                                                        max_blocks_per_html=max_blocks_per_html, pad_blocks=pad_blocks,
                                                        truncate_blocks=truncate_blocks)
         # process the dataset
-        self.dataset = self.dataset_processor.process_dataset(dataset_df)
+        self.dataset = self.dataset_processor.process_dataset(self.dataset_df)
 
     def __len__(self):
         return len(self.dataset)
