@@ -1,3 +1,5 @@
+from typing import Union, List
+
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import Dataset, DataLoader
 
@@ -8,12 +10,15 @@ from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
 
 
 class MSemTextDataset(Dataset):
-    def __init__(self, dataset_file_path="", tokenizer_name="xlm-roberta-base", use_fast_tokenizer=True,
-                 class_sequence_col_name="html/classSequence", tag_sequence_col_name="html/tagSequence",
-                 text_sequence_col_name="html/textSequence",
-                 html_id_col_name="html/originalId", part_col_name="html/part", label_col_name="html/label",
-                 features_col_name="html/featureIds", mask_sequence_col_name="html/masks",
-                 pad_html_to_max_blocks=True, max_blocks_per_html=85, pad_blocks="max_length", truncate_blocks=True
+    def __init__(self, dataset_file_path: Union[str, List[str]] = None, tokenizer_name: str = "xlm-roberta-base",
+                 use_fast_tokenizer: bool = True,
+                 class_sequence_col_name: str = "html/classSequence", tag_sequence_col_name: str = "html/tagSequence",
+                 text_sequence_col_name: str = "html/textSequence",
+                 html_id_col_name: str = "html/originalId", part_col_name: str = "html/part",
+                 label_col_name: str = "html/label",
+                 features_col_name: str = "html/featureIds", mask_sequence_col_name: str = "html/masks",
+                 pad_html_to_max_blocks: bool = True, max_blocks_per_html: int = 85, pad_blocks: str = "max_length",
+                 truncate_blocks: bool = True
                  ):
         """
 
@@ -35,7 +40,10 @@ class MSemTextDataset(Dataset):
         :param pad_blocks: Whether to pad each text block or not. Options are: 'max_length', 'longest', or 'do_not_pad'.
         :param truncate_blocks: Whether to truncate each text block to the maximum acceptable input length for the model.
         """
-        self.dataset_df = pd.read_csv(dataset_file_path)
+        if type(dataset_file_path) == list:
+            self.dataset_df = pd.concat((pd.read_csv(f) for f in dataset_file_path))
+        else:
+            self.dataset_df = pd.read_csv(dataset_file_path)
         self.label_col_name = label_col_name
         self.features_col_name = features_col_name
         self.mask_col_name = mask_sequence_col_name
@@ -67,7 +75,10 @@ class MSemTextDataset(Dataset):
 
 
 class MSemTextDataModule(LightningDataModule):
-    def __init__(self, train_set_file_path: str = None, val_set_file_path: str = None, test_set_file_path: str = None,
+    def __init__(self, train_set_file_path: Union[str, List[str]] = None,
+                 val_set_file_path: Union[str, List[str]] = None, test_set_file_path: Union[str, List[str]] = None,
+                 train_dataset: MSemTextDataset = None, val_dataset: MSemTextDataset = None,
+                 test_dataset: MSemTextDataset = None,
                  batch_size: int = 8, tokenizer_name: str = "xlm-roberta-base", use_fast_tokenizer: bool = True,
                  pad_html_to_max_blocks: bool = True, max_blocks_per_html: int = 85, pad_blocks: str = "max_length",
                  truncate_blocks: bool = True):
@@ -88,9 +99,9 @@ class MSemTextDataModule(LightningDataModule):
         :param truncate_blocks: Whether to truncate each text block to the maximum acceptable input length for the model.
         """
         super().__init__()
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
+        self.test_dataset = test_dataset
         self.train_set_file_path = train_set_file_path
         self.val_set_file_path = val_set_file_path
         self.test_set_file_path = test_set_file_path
