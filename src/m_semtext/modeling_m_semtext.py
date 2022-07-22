@@ -100,20 +100,23 @@ class MSemText(pl.LightningModule):
         self.validation_metrics = metrics.clone(prefix="val_")
         self.test_metrics = metrics.clone(prefix="test")
 
+        self.save_hyperparameters()
+
     def forward(self, input_ids: torch.Tensor, masks: torch.Tensor):
         input_size = input_ids.size()
         batch_size, feature_map_size, num_of_blocks, seq_length = input_size
 
         x_embed = []
         # need to get the BERT embeddings per row because of the batch size would have been large
-        if self.large_embedding_batch == 1 or self.large_embedding_batch is True:
+        # TODO: fix large embedding batch for CNN
+        if self.large_embedding_batch == 1 or self.large_embedding_batch is True and self.embedding_feature is not "cnn":
             for i, row in enumerate(input_ids):
                 flatten = torch.flatten(row, end_dim=-2)
                 # get the embedding representation of the input
                 x_embed_flatten, seq_length = self._get_embedding(flatten, seq_length)
                 unflatten = torch.reshape(x_embed_flatten, (feature_map_size, num_of_blocks, self.embed_dim))
                 x_embed.append(unflatten)
-        elif self.large_embedding_batch == 0.5 and self.num_feature_map == 3:
+        elif self.large_embedding_batch == 0.5 and self.num_feature_map == 3 and self.embedding_feature is not "cnn":
             for i, row in enumerate(input_ids):
                 first_second_features = torch.cat((row[0], row[1]))
                 x_embed_flatten, seq_length = self._get_embedding(first_second_features, seq_length)
