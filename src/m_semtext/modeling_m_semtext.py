@@ -256,7 +256,7 @@ class MSemText(pl.LightningModule):
         x, y, mask = batch
         y_hat = self(x, mask)
         if self.class_weights is not None:
-            y_hat = torch.mul(y_hat, torch.tensor(self.class_weights))
+            y_hat = torch.mul(y_hat, torch.tensor(self.class_weights).to(self.device))
         loss = -self.crf(y_hat, y, mask, reduction="token_mean")
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
