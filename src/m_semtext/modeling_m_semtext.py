@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 
 from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
+from m_semtext.dataset_m_semtext import MSemTextDataModule
+from m_semtext.output_processor_m_semtext import MSemTextOutputProcessor
 
 
 class MSemText(pl.LightningModule):
@@ -109,14 +111,14 @@ class MSemText(pl.LightningModule):
         x_embed = []
         # need to get the BERT embeddings per row because of the batch size would have been large
         # TODO: fix large embedding batch for CNN
-        if self.large_embedding_batch == 1 or self.large_embedding_batch is True and self.embedding_feature is not "cnn":
+        if self.large_embedding_batch == 1 or self.large_embedding_batch is True and self.embedding_feature != "cnn":
             for i, row in enumerate(input_ids):
                 flatten = torch.flatten(row, end_dim=-2)
                 # get the embedding representation of the input
                 x_embed_flatten, seq_length = self._get_embedding(flatten, seq_length)
                 unflatten = torch.reshape(x_embed_flatten, (feature_map_size, num_of_blocks, self.embed_dim))
                 x_embed.append(unflatten)
-        elif self.large_embedding_batch == 0.5 and self.num_feature_map == 3 and self.embedding_feature is not "cnn":
+        elif self.large_embedding_batch == 0.5 and self.num_feature_map == 3 and self.embedding_feature != "cnn":
             for i, row in enumerate(input_ids):
                 first_second_features = torch.cat((row[0], row[1]))
                 x_embed_flatten, seq_length = self._get_embedding(first_second_features, seq_length)
@@ -282,25 +284,25 @@ class MSemText(pl.LightningModule):
             pred = self.crf.decode(emissions, mask)
         return pred
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    processor = MSemTextDataProcessor()
-    model = MSemText(total_length_per_seq=5, embedding_feature="pooled_output")
-
-    classes = ["[]", "[one my div]", "[one my div]", "[one my div]", "[]"]
-    tags = ["[body, primary headline]", "[body, division, paragraph]", "[body, division, quinary headline]",
-           "[body, division, anchor]", "[body, secondary headline]"]
-    text = ["[My First Heading]", "[My first paragraph.]", "[Another heading]", "[www.example.com]", "[Last heading]"]
-
-    features = processor.process_html(class_sequences=classes, tag_sequences=tags, text_sequences=text)
-    features = torch.tensor([features, features])
-    labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.long)
-    masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.uint8)
-
-    model.training_step((features, labels, masks), 0)
-
-    pred = model.predict_step((features, labels, masks), 0)
-    print(pred)
+    # processor = MSemTextDataProcessor()
+    # model = MSemText(total_length_per_seq=5, embedding_feature="pooled_output")
+    #
+    # classes = ["[]", "[one my div]", "[one my div]", "[one my div]", "[]"]
+    # tags = ["[body, primary headline]", "[body, division, paragraph]", "[body, division, quinary headline]",
+    #        "[body, division, anchor]", "[body, secondary headline]"]
+    # text = ["[My First Heading]", "[My first paragraph.]", "[Another heading]", "[www.example.com]", "[Last heading]"]
+    #
+    # features = processor.process_html(class_sequences=classes, tag_sequences=tags, text_sequences=text)
+    # features = torch.tensor([features, features])
+    # labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.long)
+    # masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.uint8)
+    #
+    # model.training_step((features, labels, masks), 0)
+    #
+    # pred = model.predict_step((features, labels, masks), 0)
+    # print(pred)
 
     # data_module = MSemTextDataModule(
     #     train_set_file_path="../../dataset/dataset-test-dev/train.csv",
@@ -315,6 +317,7 @@ if __name__ == '__main__':
     #                      enable_progress_bar=True, max_epochs=1,
     #                      log_every_n_steps=50)
     # predictions = trainer.predict(model, dataloaders=data_module.test_dataloader())
+    # print(predictions)
     #
     # output_processor = MSemTextOutputProcessor()
     # df = output_processor.process(predictions, data_module.test_dataloader().dataset)
