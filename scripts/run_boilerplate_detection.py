@@ -1,29 +1,33 @@
+import numpy as np
 import os
 import pytorch_lightning as pl
 import sys
+import torch
 
 from dataclasses import dataclass, field
 
 from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from sklearn.metrics import classification_report
+from sklearn.utils import class_weight
 from transformers import HfArgumentParser
 from typing import Optional, List, Union
 
 from m_semtext.data_processor_m_semtext import MSemTextDataProcessor
 from m_semtext.dataset_m_semtext import MSemTextDataModule
 from m_semtext.modeling_m_semtext import MSemText
+from m_semtext.output_processor_m_semtext import MSemTextOutputProcessor
 
 
 @dataclass
 class DataTrainingArguments:
-    train_file: Optional[str] = field(
+    train_file: Optional[Union[str, List[str]]] = field(
         default=None, metadata={"help": "Path to a CSV file containing the training data."}
     )
-    validation_file: Optional[str] = field(
+    validation_file: Optional[Union[str, List[str]]] = field(
         default=None, metadata={"help": "Path to a CSV file containing the validation data."}
     )
-    test_file: Optional[str] = field(
+    test_file: Optional[Union[str, List[str]]] = field(
         default=None, metadata={"help": "Path to a CSV file containing the test data."}
     )
     batch_size: int = field(
@@ -116,6 +120,10 @@ class ModelArguments:
         default=1e-3,
         metadata={"help": "Learning rate used when training the model."}
     )
+    use_class_weights: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to include class weights in the loss function of CRF or not."}
+    )
 
     def __post_init__(self):
         if self.embedding_model_name is None:
@@ -191,6 +199,10 @@ class TrainingArguments:
         metadata={"help": "Whether to run classification report or not after prediction."
                           "This will only run if do_predict is True."}
     )
+    prediction_output_file_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Where to save the prediction output to."}
+    )
     # gpus: Optional[Union[int, list]] = field(
     #
     # )
@@ -238,6 +250,12 @@ if __name__ == "__main__":
     print("Datasets prepared!")
     print("=========================================================")
 
+    if model_args.use_class_weights:
+        labels_flattened = torch.flatten(data_module.train_dataset.get_labels())
+        class_weights = class_weight.compute_class_weight('balanced', classes=np.unique(labels_flattened),
+                                                          y=labels_flattened.numpy())
+    else:
+        class_weights = None
     print("Initializing model...")
     if training_args.input_model_path:
         print(f"Initializing model from checkpoint: {training_args.input_model_path}")
@@ -249,7 +267,8 @@ if __name__ == "__main__":
                          num_filters=model_args.num_filters, lstm_hidden_size=model_args.lstm_hidden_size,
                          total_length_per_seq=model_args.total_length_per_seq, num_classes=model_args.num_classes,
                          continue_pre_train_embedding=model_args.continue_pre_train_embedding,
-                         large_embedding_batch=model_args.large_embedding_batch, learning_rate=model_args.learning_rate)
+                         large_embedding_batch=model_args.large_embedding_batch, learning_rate=model_args.learning_rate,
+                         class_weights=class_weights)
     print("Model initialized!")
     print("=========================================================")
 
@@ -266,19 +285,30 @@ if __name__ == "__main__":
     if training_args.do_train:
         if data_args.train_file is None:
             raise ValueError("train_file must be provided if do_train is True!")
-        if training_args.auto_find_learning_rate:
-            print("Run hyperparameter tuning...")
+        if training_args.input_model_path:
+            print(f"Continuing model training from checkpoint (model input path): {training_args.input_model_path}")
             if data_args.validation_file is None:
-                trainer.tune(model, train_dataloaders=data_module.train_dataloader())
+                trainer.fit(model, ckpt_path=training_args.input_model_path,
+                            train_dataloaders=data_module.train_dataloader())
             else:
-                trainer.tune(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
-            print("Hyperparameter tuning done!")
-            print("=========================================================")
-        print("Training model...")
-        if data_args.validation_file is None:
-            trainer.fit(model, train_dataloaders=data_module.train_dataloader())
+                trainer.fit(model, ckpt_path=training_args.input_model_path,
+                            train_dataloaders=data_module.train_dataloader(),
+                            val_dataloaders=data_module.val_dataloader())
         else:
-            trainer.fit(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
+
+            if training_args.auto_find_learning_rate:
+                print("Run hyperparameter tuning...")
+                if data_args.validation_file is None:
+                    trainer.tune(model, train_dataloaders=data_module.train_dataloader())
+                else:
+                    trainer.tune(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
+                print("Hyperparameter tuning done!")
+                print("=========================================================")
+            print("Training model...")
+            if data_args.validation_file is None:
+                trainer.fit(model, train_dataloaders=data_module.train_dataloader())
+            else:
+                trainer.fit(model, train_dataloaders=data_module.train_dataloader(), val_dataloaders=data_module.val_dataloader())
         print("Model trained!")
         print("=========================================================")
 
@@ -300,3 +330,7 @@ if __name__ == "__main__":
             if training_args.run_classification_report:
                 report = get_prediction_classification_report(predictions, data_module.test_dataloader())
                 print(report)
+            if training_args.prediction_output_file_path:
+                output_processor = MSemTextOutputProcessor()
+                output_processor.save_to_csv(training_args.prediction_output_file_path, predictions,
+                                             data_module.test_dataset)

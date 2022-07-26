@@ -73,6 +73,11 @@ class MSemTextDataset(Dataset):
         masks = torch.tensor(masks, dtype=torch.uint8)
         return features, labels, masks
 
+    def get_labels(self):
+        labels = self.dataset[self.label_col_name].tolist()
+        labels = torch.tensor(labels, dtype=torch.long)
+        return labels
+
 
 class MSemTextDataModule(LightningDataModule):
     def __init__(self, train_set_file_path: Union[str, List[str]] = None,

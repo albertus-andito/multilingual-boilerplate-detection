@@ -1,5 +1,6 @@
 from typing import Union
 
+from sklearn.utils import class_weight
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchcrf import CRF
@@ -7,6 +8,7 @@ from torchmetrics import F1Score, MetricCollection, Precision, Recall
 from transformers import AutoModel
 
 import itertools
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
@@ -27,7 +29,7 @@ class MSemText(pl.LightningModule):
                  filter_sizes: list = None, num_filters: list = None, lstm_hidden_size: int = 512,
                  total_length_per_seq: int = 85, num_classes: int = 2,
                  continue_pre_train_embedding: bool = False, large_embedding_batch: Union[bool, float] = False,
-                 learning_rate: float = 1e-3):
+                 learning_rate: float = 1e-3, class_weights: list = None):
         """
 
         :param embedding_model_name: Name of the language model to be used in the embedding model.
@@ -86,6 +88,8 @@ class MSemText(pl.LightningModule):
         self.large_embedding_batch = large_embedding_batch
 
         self.learning_rate = learning_rate
+
+        self.class_weights = class_weights
 
         metrics = MetricCollection({
             "precision_micro": Precision(num_classes=2, average="micro"),
@@ -251,6 +255,8 @@ class MSemText(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y, mask = batch
         y_hat = self(x, mask)
+        if self.class_weights is not None:
+            y_hat = torch.mul(y_hat, torch.tensor(self.class_weights))
         loss = -self.crf(y_hat, y, mask, reduction="token_mean")
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
@@ -284,25 +290,30 @@ class MSemText(pl.LightningModule):
             pred = self.crf.decode(emissions, mask)
         return pred
 
+#
 # if __name__ == '__main__':
-
-    # processor = MSemTextDataProcessor()
-    # model = MSemText(total_length_per_seq=5, embedding_feature="pooled_output")
-    #
-    # classes = ["[]", "[one my div]", "[one my div]", "[one my div]", "[]"]
-    # tags = ["[body, primary headline]", "[body, division, paragraph]", "[body, division, quinary headline]",
-    #        "[body, division, anchor]", "[body, secondary headline]"]
-    # text = ["[My First Heading]", "[My first paragraph.]", "[Another heading]", "[www.example.com]", "[Last heading]"]
-    #
-    # features = processor.process_html(class_sequences=classes, tag_sequences=tags, text_sequences=text)
-    # features = torch.tensor([features, features])
-    # labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.long)
-    # masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.uint8)
-    #
-    # model.training_step((features, labels, masks), 0)
-    #
-    # pred = model.predict_step((features, labels, masks), 0)
-    # print(pred)
+#
+#     processor = MSemTextDataProcessor()
+#
+#     classes = ["[]", "[one my div]", "[one my div]", "[one my div]", "[]"]
+#     tags = ["[body, primary headline]", "[body, division, paragraph]", "[body, division, quinary headline]",
+#            "[body, division, anchor]", "[body, secondary headline]"]
+#     text = ["[My First Heading]", "[My first paragraph.]", "[Another heading]", "[www.example.com]", "[Last heading]"]
+#
+#     features = processor.process_html(class_sequences=classes, tag_sequences=tags, text_sequences=text)
+#     features = torch.tensor([features, features])
+#     labels = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.long)
+#     masks = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 1, 0, 0]], dtype=torch.uint8)
+#
+#     labels_flattened = torch.flatten(labels)
+#     class_weights = class_weight.compute_class_weight('balanced', classes=np.unique(labels_flattened), y=labels_flattened.numpy())
+#
+#     model = MSemText(total_length_per_seq=5, embedding_feature="pooled_output", class_weights=class_weights)
+#
+#     model.training_step((features, labels, masks), 0)
+#
+#     pred = model.predict_step((features, labels, masks), 0)
+#     print(pred)
 
     # data_module = MSemTextDataModule(
     #     train_set_file_path="../../dataset/dataset-test-dev/train.csv",
