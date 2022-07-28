@@ -148,7 +148,7 @@ class MSemTextDataModule(LightningDataModule):
                                                 pad_blocks=self.pad_blocks, truncate_blocks=self.truncate_blocks)
         if self.predict_set_file_path:
             print("Processing predict data...")
-            self.predict_dataset = MSemTextDataset(dataset_file_path=self.test_set_file_path,
+            self.predict_dataset = MSemTextDataset(dataset_file_path=self.predict_set_file_path,
                                                 tokenizer_name=self.tokenizer_name,
                                                 use_fast_tokenizer=self.use_fast_tokenizer,
                                                 pad_html_to_max_blocks=self.pad_html_to_max_blocks,
