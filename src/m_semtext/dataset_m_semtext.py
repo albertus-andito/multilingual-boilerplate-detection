@@ -82,8 +82,9 @@ class MSemTextDataset(Dataset):
 class MSemTextDataModule(LightningDataModule):
     def __init__(self, train_set_file_path: Union[str, List[str]] = None,
                  val_set_file_path: Union[str, List[str]] = None, test_set_file_path: Union[str, List[str]] = None,
+                 predict_set_file_path: Union[str, List[str]] = None,
                  train_dataset: MSemTextDataset = None, val_dataset: MSemTextDataset = None,
-                 test_dataset: MSemTextDataset = None,
+                 test_dataset: MSemTextDataset = None, predict_dataset: MSemTextDataset = None,
                  batch_size: int = 8, tokenizer_name: str = "xlm-roberta-base", use_fast_tokenizer: bool = True,
                  pad_html_to_max_blocks: bool = True, max_blocks_per_html: int = 85, pad_blocks: str = "max_length",
                  truncate_blocks: bool = True):
@@ -107,9 +108,11 @@ class MSemTextDataModule(LightningDataModule):
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
+        self.predict_dataset = predict_dataset
         self.train_set_file_path = train_set_file_path
         self.val_set_file_path = val_set_file_path
         self.test_set_file_path = test_set_file_path
+        self.predict_set_file_path = predict_set_file_path
         self.batch_size = batch_size
         self.tokenizer_name = tokenizer_name
         self.use_fast_tokenizer = use_fast_tokenizer
@@ -143,6 +146,14 @@ class MSemTextDataModule(LightningDataModule):
                                                 pad_html_to_max_blocks=self.pad_html_to_max_blocks,
                                                 max_blocks_per_html=self.max_blocks_per_html,
                                                 pad_blocks=self.pad_blocks, truncate_blocks=self.truncate_blocks)
+        if self.predict_set_file_path:
+            print("Processing predict data...")
+            self.predict_dataset = MSemTextDataset(dataset_file_path=self.test_set_file_path,
+                                                tokenizer_name=self.tokenizer_name,
+                                                use_fast_tokenizer=self.use_fast_tokenizer,
+                                                pad_html_to_max_blocks=self.pad_html_to_max_blocks,
+                                                max_blocks_per_html=self.max_blocks_per_html,
+                                                pad_blocks=self.pad_blocks, truncate_blocks=self.truncate_blocks)
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size)
@@ -152,3 +163,6 @@ class MSemTextDataModule(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.batch_size)
+
+    def predict_dataloader(self):
+        return DataLoader(self.predict_dataset, batch_size=self.batch_size, shuffle=False)
