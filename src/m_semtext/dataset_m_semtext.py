@@ -13,7 +13,9 @@ class MSemTextDataset(Dataset):
     def __init__(self, dataset_file_path: Union[str, List[str]] = None, tokenizer_name: str = "xlm-roberta-base",
                  use_fast_tokenizer: bool = True,
                  class_sequence_col_name: str = "html/classSequence", tag_sequence_col_name: str = "html/tagSequence",
-                 text_sequence_col_name: str = "html/textSequence",
+                 text_sequence_col_name: str = "html/textSequence", class_sequence_ids_col_name: str = "html/classSequenceIds",
+                 tag_sequence_ids_col_name: str = "html/tagSequenceIds",
+                 text_sequence_ids_col_name: str = "html/textSequenceIds",
                  html_id_col_name: str = "html/originalId", part_col_name: str = "html/part",
                  label_col_name: str = "html/label",
                  features_col_name: str = "html/featureIds", mask_sequence_col_name: str = "html/masks",
@@ -40,6 +42,7 @@ class MSemTextDataset(Dataset):
         :param pad_blocks: Whether to pad each text block or not. Options are: 'max_length', 'longest', or 'do_not_pad'.
         :param truncate_blocks: Whether to truncate each text block to the maximum acceptable input length for the model.
         """
+        # original dataset dataframe
         if type(dataset_file_path) == list:
             self.dataset_df = pd.concat((pd.read_csv(f) for f in dataset_file_path))
         else:
@@ -47,10 +50,16 @@ class MSemTextDataset(Dataset):
         self.label_col_name = label_col_name
         self.features_col_name = features_col_name
         self.mask_col_name = mask_sequence_col_name
+        self.class_sequence_ids_col_name = class_sequence_ids_col_name
+        self.tag_sequence_ids_col_name = tag_sequence_ids_col_name
+        self.text_sequence_ids_col_name = text_sequence_ids_col_name
         self.dataset_processor = MSemTextDataProcessor(tokenizer_name=tokenizer_name, use_fast_tokenizer=use_fast_tokenizer,
                                                        class_sequence_col_name=class_sequence_col_name,
                                                        tag_sequence_col_name=tag_sequence_col_name,
                                                        text_sequence_col_name=text_sequence_col_name,
+                                                       class_sequence_ids_col_name=class_sequence_ids_col_name,
+                                                       tag_sequence_ids_col_name=tag_sequence_ids_col_name,
+                                                       text_sequence_ids_col_name=text_sequence_ids_col_name,
                                                        html_id_col_name=html_id_col_name, part_col_name=part_col_name,
                                                        label_col_name=label_col_name,
                                                        mask_sequence_col_name=mask_sequence_col_name,
@@ -58,8 +67,16 @@ class MSemTextDataset(Dataset):
                                                        pad_html_to_max_blocks=pad_html_to_max_blocks,
                                                        max_blocks_per_html=max_blocks_per_html, pad_blocks=pad_blocks,
                                                        truncate_blocks=truncate_blocks)
-        # process the dataset
+        # processed dataset where each row is an input to the model
         self.dataset = self.dataset_processor.process_dataset(self.dataset_df)
+        # processed dataset dataframe with the same shape as the original dataframe
+        columns_to_explode = [class_sequence_col_name, tag_sequence_col_name, text_sequence_col_name,
+                              class_sequence_ids_col_name, tag_sequence_ids_col_name, text_sequence_ids_col_name,
+                              mask_sequence_col_name, label_col_name]
+        if 'postgresId' in self.dataset_df.columns:
+            columns_to_explode.append('postgresId')
+        self.processed_df = self.dataset.apply(lambda row: self._remove_padding(row), axis=1).explode(
+            column=columns_to_explode)
 
     def __len__(self):
         return len(self.dataset)
@@ -77,6 +94,19 @@ class MSemTextDataset(Dataset):
         labels = self.dataset[self.label_col_name].tolist()
         labels = torch.tensor(labels, dtype=torch.long)
         return labels
+
+    def _remove_padding(self, row):
+        len_count = row[self.mask_col_name].count(1)
+        row[self.class_sequence_ids_col_name] = row[self.class_sequence_ids_col_name][:len_count]
+        row[self.tag_sequence_ids_col_name] = row[self.tag_sequence_ids_col_name][:len_count]
+        row[self.text_sequence_ids_col_name] = row[self.text_sequence_ids_col_name][:len_count]
+        feature_ids = []
+        for feature in row[self.features_col_name]:
+            feature_ids.append(feature[:len_count])
+        row[self.features_col_name] = feature_ids
+        row[self.label_col_name] = row[self.label_col_name][:len_count]
+        row[self.mask_col_name] = row[self.mask_col_name][:len_count]
+        return row
 
 
 class MSemTextDataModule(LightningDataModule):

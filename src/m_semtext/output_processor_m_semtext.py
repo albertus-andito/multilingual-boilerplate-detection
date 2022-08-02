@@ -15,7 +15,7 @@ class MSemTextOutputProcessor:
     def process(self, predictions: List[List[List[int]]], dataset: MSemTextDataset, prediction_col_name: str = None) -> pd.DataFrame:
         if prediction_col_name is None:
             prediction_col_name = self.prediction_col_name
-        dataset_df = dataset.dataset_df
+        dataset_df = dataset.processed_df
         predictions = [pred for outer_list in predictions for inner_list in outer_list for pred in inner_list]
         dataset_df[prediction_col_name] = predictions
         return dataset_df
@@ -67,15 +67,17 @@ class MSemTextHTMLLabeler:
         self.text_sequence_col_name = text_sequence_col_name
         self.html_str_col_name = html_str_col_name
 
-    def label_htmls(self, htmls_dir_path: str = None, htmls_df: pd.DataFrame = None, dataset_df: pd.DataFrame = None, dataset_file_path: str = None,
-                    labeled_htmls_dir_path: str = None):
+    def label_htmls(self, htmls_dir_path: str = None, htmls_df: pd.DataFrame = None, dataset_df: pd.DataFrame = None,
+                    dataset_file_path: str = None,
+                    produce_labeled_html_files: bool = False, labeled_htmls_dir_path: str = None,
+                    highlight_positive_label: bool = True):
         if htmls_dir_path and htmls_df:
             raise ValueError("Only one of 'htmls_dir_path' and 'htmls_df' can be used!")
         if htmls_dir_path is None and htmls_df is None:
             raise ValueError("One of 'htmls_dir_path-path' and 'htmls_df' must not be empty!")
         if dataset_df is None:
             dataset_df = pd.read_csv(dataset_file_path)
-        if labeled_htmls_dir_path is None:
+        if labeled_htmls_dir_path is None and produce_labeled_html_files:
             labeled_htmls_dir_path = htmls_dir_path
         if not os.path.exists(labeled_htmls_dir_path):
             os.makedirs(labeled_htmls_dir_path)
@@ -99,7 +101,9 @@ class MSemTextHTMLLabeler:
             labeled_htmls.append((html_file_name, labeled_html))
         return pd.DataFrame(labeled_htmls, columns=[self.html_file_name_col_name, self.html_str_col_name])
 
-    def label_html(self, html_df: pd.DataFrame, html_file_path: str = None, html_str: str = None, labeled_html_file_path: str = None):
+    def label_html(self, html_df: pd.DataFrame, html_file_path: str = None, html_str: str = None,
+                   produce_labeled_html_file: bool = False, labeled_html_file_path: str = None,
+                   highlight_positive_label: bool = True):
         if html_file_path and html_str:
             raise ValueError("Only one of 'html_file_path' and 'html_str' can be used!")
         if html_file_path is None and html_str is None:
@@ -109,7 +113,7 @@ class MSemTextHTMLLabeler:
                 html = BeautifulSoup(f, "html.parser")
         if html_str:
             html = BeautifulSoup(html_str, "html.parser")
-        if labeled_html_file_path is None:
+        if labeled_html_file_path is None and produce_labeled_html_file:
             labeled_html_file_path = html_file_path
 
         for index, row in html_df.iterrows():
@@ -171,12 +175,16 @@ class MSemTextHTMLLabeler:
             #     print(text)
             for element in elements:
                 element[self.label_attribute_name] = label
+                if label == 1 and highlight_positive_label:
+                    if element.string is not None:
+                        element.string.wrap(html.new_tag("mark"))
             # if len(elements) == 1:
             #     elements[0][self.label_attribute_name] = label
             # print("=======")
 
-        with open(labeled_html_file_path, "w") as f:
-            f.write(str(html))
+        if labeled_html_file_path:
+            with open(labeled_html_file_path, "w") as f:
+                f.write(str(html))
 
         return html
 
