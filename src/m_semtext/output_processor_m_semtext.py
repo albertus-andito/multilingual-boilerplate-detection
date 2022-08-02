@@ -21,9 +21,14 @@ class MSemTextOutputProcessor:
         return dataset_df
 
     def save_to_csv(self, file_path: str, predictions: List[List[List[int]]], dataset: MSemTextDataset,
-                    prediction_col_name: str = None,) -> None:
+                    prediction_col_name: str = None, with_ids_columns=False) -> None:
         df = self.process(predictions, dataset, prediction_col_name)
-        df.to_csv(file_path)
+        if with_ids_columns:
+            df.to_csv(file_path)
+        else:
+            df.to_csv(file_path, columns=[dataset.html_id_col_name, dataset.part_col_name,
+                                          dataset.class_sequence_col_name, dataset.tag_sequence_col_name,
+                                          dataset.text_sequence_col_name, dataset.label_col_name, self.prediction_col_name])
 
 
 class MSemTextHTMLLabeler:

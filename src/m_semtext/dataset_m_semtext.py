@@ -50,6 +50,11 @@ class MSemTextDataset(Dataset):
         self.label_col_name = label_col_name
         self.features_col_name = features_col_name
         self.mask_col_name = mask_sequence_col_name
+        self.html_id_col_name = html_id_col_name
+        self.part_col_name = part_col_name
+        self.class_sequence_col_name = class_sequence_col_name
+        self.tag_sequence_col_name = tag_sequence_col_name
+        self.text_sequence_col_name = text_sequence_col_name
         self.class_sequence_ids_col_name = class_sequence_ids_col_name
         self.tag_sequence_ids_col_name = tag_sequence_ids_col_name
         self.text_sequence_ids_col_name = text_sequence_ids_col_name
@@ -76,7 +81,7 @@ class MSemTextDataset(Dataset):
         if 'postgresId' in self.dataset_df.columns:
             columns_to_explode.append('postgresId')
         self.processed_df = self.dataset.apply(lambda row: self._remove_padding(row), axis=1).explode(
-            column=columns_to_explode)
+            column=columns_to_explode).reset_index()
 
     def __len__(self):
         return len(self.dataset)
